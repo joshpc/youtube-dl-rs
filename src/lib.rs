@@ -101,6 +101,16 @@ pub enum Error {
     NoReleaseFound,
 }
 
+#[derive(Debug)]
+pub struct DownloadResult {
+    /// Standard output from yt-dlp (usually contains progress info when --no-progress is not used)
+    pub stdout: String,
+    /// Standard error from yt-dlp (contains warnings, errors, and verbose output)
+    pub stderr: String,
+    /// Exit code of the yt-dlp process
+    pub exit_code: ExitStatus,
+}
+
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
         Error::Io(err)
@@ -827,12 +837,27 @@ impl YoutubeDl {
     }
 
     /// Download the file to the specified destination folder.
-    pub fn download_to(&self, folder: impl AsRef<Path>) -> Result<(), Error> {
+    pub fn download_to(&self, folder: impl AsRef<Path>) -> Result<DownloadResult, Error> {
         let folder_str = folder.as_ref().to_string_lossy();
         let args = self.process_download_args(&folder_str);
-        self.run_process(args)?;
+        let ProcessResult { stdout, stderr, exit_code } = self.run_process(args)?;
 
-        Ok(())
+        let stdout_str = String::from_utf8_lossy(&stdout).into_owned();
+        let stderr_str = String::from_utf8_lossy(&stderr).into_owned();
+
+        if exit_code.success() || self.ignore_errors {
+            Ok(DownloadResult {
+                stdout: stdout_str,
+                stderr: stderr_str,
+                exit_code,
+            })
+        }
+        else {
+            Err(Error::ExitCode {
+                code: exit_code.code().unwrap_or(1),
+                stderr: stderr_str,
+            })
+        }
     }
 
     /// Download the file to the specified destination folder asynchronously.
